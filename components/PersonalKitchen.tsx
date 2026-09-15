@@ -14,7 +14,7 @@ export function PersonalKitchen({
 }) {
   const supabase = getSupabase()!;
   const [product, setProduct] = useState({
-    name: "", emoji: "🥗", category: "Otros", unit: "unidad",
+    name: "", emoji: "🥗", category: "Otros", unit: "unidad", barcode: "",
     min: "1", ideal: "5", locationId: state.locations[0]?.id ?? "", isPerishable: true
   });
   const [location, setLocation] = useState({ name: "", type: "other" as LocationType });
@@ -45,7 +45,8 @@ export function PersonalKitchen({
       min_stock: Number(product.min) || 0,
       ideal_stock: Math.max(Number(product.ideal) || 0, Number(product.min) || 0),
       default_location_id: product.locationId,
-      is_perishable: product.isPerishable
+      is_perishable: product.isPerishable,
+      barcode: product.barcode.trim() || null
     });
 
     if (error) return flash(error.message);
@@ -137,6 +138,7 @@ export function PersonalKitchen({
             <label className="field">Emoji<input value={product.emoji} onChange={e => setProduct({ ...product, emoji: e.target.value })} /></label>
             <label className="field">Categoría<input value={product.category} onChange={e => setProduct({ ...product, category: e.target.value })} /></label>
             <label className="field">Unidad<input value={product.unit} onChange={e => setProduct({ ...product, unit: e.target.value })} placeholder="unidad, g, ml..." /></label>
+            <label className="field">Barcode<input value={product.barcode} onChange={e => setProduct({ ...product, barcode: e.target.value })} placeholder="EAN / UPC opcional" /></label>
             <label className="field">Mínimo<input type="number" min="0" value={product.min} onChange={e => setProduct({ ...product, min: e.target.value })} /></label>
             <label className="field">Ideal<input type="number" min="0" value={product.ideal} onChange={e => setProduct({ ...product, ideal: e.target.value })} /></label>
 
@@ -258,6 +260,7 @@ function ProductRow({
     unit: item.unit,
     min: String(item.min),
     ideal: String(item.ideal),
+    barcode: item.barcode ?? "",
     locationId: item.locationId,
     isPerishable: item.isPerishable !== false
   });
@@ -271,7 +274,8 @@ function ProductRow({
       min_stock: Number(draft.min) || 0,
       ideal_stock: Math.max(Number(draft.ideal) || 0, Number(draft.min) || 0),
       default_location_id: draft.locationId,
-      is_perishable: draft.isPerishable
+      is_perishable: draft.isPerishable,
+      barcode: draft.barcode.trim() || null
     }).eq("id", item.id);
 
     if (error) return flash(error.message);
@@ -291,7 +295,7 @@ function ProductRow({
     <div className="manager-row">
       <div className="manager-row-head">
         <span>{item.emoji}</span>
-        <div><strong>{item.name}</strong><small>{item.category} · {item.locationName} · min {item.min} / ideal {item.ideal}</small></div>
+        <div><strong>{item.name}</strong><small>{item.category} · {item.locationName} · min {item.min} / ideal {item.ideal}{item.barcode?" · barcode "+item.barcode:""}</small></div>
         <div className="manager-row-actions">
           <button className="soft-action" onClick={() => setEditing(!editing)}>{editing ? "Cerrar" : "Editar"}</button>
           <button className="soft-action" onClick={archive}>Archivar</button>
@@ -304,6 +308,7 @@ function ProductRow({
           <input value={draft.emoji} onChange={e => setDraft({ ...draft, emoji: e.target.value })} />
           <input value={draft.category} onChange={e => setDraft({ ...draft, category: e.target.value })} />
           <input value={draft.unit} onChange={e => setDraft({ ...draft, unit: e.target.value })} />
+          <input value={draft.barcode} onChange={e => setDraft({ ...draft, barcode: e.target.value })} placeholder="Barcode" />
           <input type="number" value={draft.min} onChange={e => setDraft({ ...draft, min: e.target.value })} />
           <input type="number" value={draft.ideal} onChange={e => setDraft({ ...draft, ideal: e.target.value })} />
 
