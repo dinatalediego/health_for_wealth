@@ -12,7 +12,7 @@ export function PersonalKitchen({
   onRefresh: () => Promise<void>;
   flash: (m: string) => void;
 }) {
-  const supabase = getSupabase();
+  const supabase = getSupabase()!;
   const [product, setProduct] = useState({
     name: "", emoji: "🥗", category: "Otros", unit: "unidad",
     min: "1", ideal: "5", locationId: state.locations[0]?.id ?? "", isPerishable: true
