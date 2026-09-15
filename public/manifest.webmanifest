@@ -1,0 +1,9 @@
+{
+  "name": "Kitchen Readiness · Health for Wealth",
+  "short_name": "Kitchen",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f2",
+  "theme_color": "#173c2b",
+  "icons": []
+}
