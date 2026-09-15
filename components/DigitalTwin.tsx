@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { getSupabase } from "@/lib/supabase";
 import type { KitchenState, Location } from "@/lib/types";
 
-type Twin = { snapshot: any; imageUrl?: string };
+type Twin = { snapshot: any; previous?: any; imageUrl?: string };
 
 export function DigitalTwin({
   state, cloud, onScanLocation
@@ -30,16 +30,20 @@ export function DigitalTwin({
         .select("*")
         .eq("household_id", state.householdId)
         .order("created_at", { ascending: false })
-        .limit(80);
+        .limit(120);
 
-      const latest = new Map<string, any>();
+      const grouped = new Map<string, any[]>();
       for (const row of snapshots ?? []) {
-        if (!latest.has(row.location_id)) latest.set(row.location_id, row);
+        const rows = grouped.get(row.location_id) ?? [];
+        if (rows.length < 2) rows.push(row);
+        grouped.set(row.location_id, rows);
       }
 
-      const scanIds = [...latest.values()].map(x => x.scan_session_id).filter(Boolean);
-      const imagesByScan = new Map<string, string>();
+      const scanIds = [...grouped.values()]
+        .map(rows => rows[0]?.scan_session_id)
+        .filter(Boolean);
 
+      const imagesByScan = new Map<string, string>();
       if (scanIds.length) {
         const { data: images } = await supabase
           .from("hfw_scan_images")
@@ -56,10 +60,12 @@ export function DigitalTwin({
       }
 
       const next: Record<string, Twin> = {};
-      latest.forEach((snapshot, locationId) => {
+      grouped.forEach((rows, locationId) => {
+        const snapshot = rows[0];
         next[locationId] = {
           snapshot,
-          imageUrl: imagesByScan.get(snapshot.scan_session_id)
+          previous: rows[1],
+          imageUrl: imagesByScan.get(snapshot?.scan_session_id)
         };
       });
 
@@ -104,17 +110,36 @@ function TwinCard({
     organizer: "🧺",
     other: "📦"
   };
+
   const icon = icons[location.type] ?? "📦";
-  const style = twin?.imageUrl ? { backgroundImage: "url(" + JSON.stringify(twin.imageUrl) + ")" } : undefined;
-  const badge = twin?.snapshot ? String(twin.snapshot.fill_percent) + "% ocupado" : "Aún sin scan";
-  const scanText = twin?.snapshot ? " · " + String(twin.snapshot.confirmed_item_count) + " confirmados en último scan" : "";
+  const style = twin?.imageUrl
+    ? { backgroundImage: "url(" + JSON.stringify(twin.imageUrl) + ")" }
+    : undefined;
+
+  const badge = twin?.snapshot
+    ? String(twin.snapshot.fill_percent) + "% ocupado"
+    : "Aún sin scan";
+
+  const fillDelta = twin?.snapshot && twin?.previous
+    ? Number(twin.snapshot.fill_percent) - Number(twin.previous.fill_percent)
+    : null;
+
+  const deltaText = fillDelta === null
+    ? ""
+    : fillDelta === 0
+      ? " · sin cambio de fill"
+      : " · " + (fillDelta > 0 ? "↑ +" : "↓ ") + fillDelta + " pp vs anterior";
+
+  const scanText = twin?.snapshot
+    ? " · " + String(twin.snapshot.confirmed_item_count) + " confirmados"
+    : "";
 
   return (
     <button className="twin-card" style={style} onClick={onClick}>
       <div className="twin-card-content">
         <span className="twin-badge">{icon} {badge}</span>
         <h3>{location.name}</h3>
-        <p>{stocked}/{items.length} items con stock{scanText}</p>
+        <p>{stocked}/{items.length} items con stock{scanText}{deltaText}</p>
       </div>
     </button>
   );
