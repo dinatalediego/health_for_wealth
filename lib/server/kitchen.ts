@@ -106,12 +106,13 @@ export async function evaluateKitchen(householdId: string): Promise<KitchenEvalu
   };
 }
 
-export async function latestStateSnapshot(householdId: string) {
+export async function latestStateSnapshot(householdId: string, triggerSource = "scan") {
   const supabase = serviceClient();
   const { data, error } = await supabase
     .from("hfw_kitchen_state_snapshots")
     .select("*")
     .eq("household_id", householdId)
+    .eq("trigger_source", triggerSource)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
