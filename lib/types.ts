@@ -22,6 +22,7 @@ export type Item = {
   locationType: LocationType;
   nextExpiry?: string | null;
   isPerishable?: boolean;
+  barcode?: string | null;
 };
 
 export type Ingredient = {

@@ -80,3 +80,32 @@ Designed for Vercel. Add the public Supabase URL/key for cloud sync. Add the fou
 Computer Vision now ships as a human-in-the-loop beta using TensorFlow.js + COCO-SSD in the browser. It never writes inventory without explicit confirmation. See `docs/vision-beta.md`.
 
 See `docs/product-spec.md`, `docs/data-model.md` and `docs/architecture.md`.
+
+
+## Closed consequence loop
+
+The production loop now supports:
+
+`scan → coverage evaluation → consequence email → Smart Restock purchase → new scan → recovery detection`
+
+Immediate emails are consequence-based. They are sent when a confirmed scan causes a material state transition such as zero capacity for a meal type, crossing the configured coverage threshold, a drop of two or more coverage days, or new stockouts. A later scan that restores coverage above the threshold can close the loop with a recovery event.
+
+The Reporting screen includes a manual **Enviar prueba** action so Resend delivery can be verified without waiting for the cron.
+
+## Vision evidence stack
+
+The scan pipeline follows a free-first escalation order:
+
+1. COCO-SSD object detection in-browser
+2. ZXing barcode decoding in-browser
+3. Tesseract OCR in-browser
+4. human review
+5. optional multimodal fallback only for unresolved/low-confidence cases
+
+The optional fallback is inactive unless `OPENAI_API_KEY` is configured. `OPENAI_VISION_MODEL` defaults to `gpt-5.6-luna`.
+
+Product barcodes can be stored in **Personal Kitchen**. Scan evidence records its source as object / barcode / OCR / multimodal so future accuracy analysis can separate the contribution of each method.
+
+## Temporal visual comparison
+
+Digital Twin cards compare the latest fill estimate with the previous scan for the same storage space and show the change in percentage points. This is an observation signal, not a volumetric measurement.
