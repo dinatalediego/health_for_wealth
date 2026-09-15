@@ -9,15 +9,49 @@ export function servingsForMeal(meal: Meal, items: Item[]) {
   }))));
 }
 
+// Conservative capacity per meal type: choose the best currently available option.
+// We avoid summing alternative meals because they can share the same ingredients.
 export function mealCounts(state: KitchenState) {
   const result: Record<MealType, number> = { breakfast:0, lunch:0, dinner:0, snack:0 };
-  state.meals.forEach(m => { result[m.type] += servingsForMeal(m, state.items); });
+  state.meals.forEach(m => {
+    result[m.type] = Math.max(result[m.type], servingsForMeal(m, state.items));
+  });
   return result;
 }
 
+// Greedy day-by-day simulation so the same eggs/rice/chicken are not counted twice
+// across breakfast/lunch/dinner/snack. This is intentionally conservative and auditable.
 export function coverageDays(state: KitchenState) {
-  const c = mealCounts(state);
-  return Math.max(0, Math.min(c.breakfast, c.lunch, c.dinner, c.snack));
+  const quantities = new Map(state.items.map(i => [i.id, i.quantity]));
+  const types: MealType[] = ["breakfast","lunch","dinner","snack"];
+  let days = 0;
+
+  for (let guard=0; guard<60; guard++) {
+    const chosen: Meal[] = [];
+    for (const type of types) {
+      const candidates = state.meals
+        .filter(m => m.type === type)
+        .map(m => ({
+          meal:m,
+          servings: Math.floor(Math.min(...m.ingredients.filter(i=>!i.optional).map(ing => {
+            return (quantities.get(ing.productId) ?? 0) / ing.quantity;
+          })))
+        }))
+        .filter(x => Number.isFinite(x.servings) && x.servings >= 1)
+        .sort((a,b) => b.servings-a.servings || a.meal.prepMinutes-b.meal.prepMinutes);
+
+      if (!candidates.length) return days;
+      chosen.push(candidates[0].meal);
+    }
+
+    for (const meal of chosen) {
+      for (const ing of meal.ingredients.filter(i=>!i.optional)) {
+        quantities.set(ing.productId, Math.max(0,(quantities.get(ing.productId) ?? 0)-ing.quantity));
+      }
+    }
+    days++;
+  }
+  return days;
 }
 
 export function stockHealth(state: KitchenState) {
@@ -37,7 +71,7 @@ export function restockSuggestions(state: KitchenState) {
     .filter(i => i.quantity <= i.min)
     .map(i => ({...i, suggested: Math.max(0, i.ideal - i.quantity)}))
     .filter(i => i.suggested > 0)
-    .sort((a,b) => (a.quantity/a.ideal) - (b.quantity/b.ideal));
+    .sort((a,b) => (a.quantity/Math.max(a.ideal,1)) - (b.quantity/Math.max(b.ideal,1)));
 }
 
 export function mealsUnlockedByRestock(state: KitchenState, productId: string) {

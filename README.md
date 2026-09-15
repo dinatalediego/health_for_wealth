@@ -1,59 +1,79 @@
-# Health for Wealth — Home Stock OS
+# Health for Wealth — Kitchen Readiness
 
-A mobile-first household inventory system for refrigerator, freezer, pantry and kitchen/home organizers.
+A mobile-first household food operating system. The product is not trying to answer only **“how many groceries do I have?”**. It is designed to answer:
 
-## Product thesis
+> **How many days can I eat well at home with the food I have right now?**
 
-The goal is not to manually count groceries forever. The system should answer four questions quickly:
+## Vertical slice v0
 
-1. **What do I have?**
-2. **What is about to expire?**
-3. **What am I running out of?**
-4. **What should I buy next?**
+The current product closes the loop:
 
-This turns household stock into a simple loop:
+`update stock → calculate meal capacity → choose a meal → consume → decrement ingredients → report → smart restock → replenish`
 
-`capture → inventory → consume → predict → replenish → learn`
+### Screens
 
-## MVP screens
+- **Inicio** — Home Meal Coverage Days, meal capacity, kitchen spaces and attention queue.
+- **Stock** — refrigerator / freezer / pantry / organizers with fast quantity entry and min/ideal targets.
+- **Meals** — breakfast, lunch, dinner and snacks that are actually possible from current stock.
+- **Comprar** — replenishment to ideal stock, prioritized by meal capacity unlocked.
+- **Reportes** — coverage, stock health, meals logged, stockouts, meal capacity and event history.
 
-- **Home** — stock health, expiring soon, low-stock items, quick actions.
-- **My Home** — Refrigerator / Freezer / Pantry / Organizers as visual zones.
-- **Inventory** — search/filter items by location, category and status.
-- **Item** — quantity, unit, minimum stock, expiry, opened date, location.
-- **Shopping List** — automatically suggested replenishment plus manual items.
-- **Activity** — purchases, consumption, waste and adjustments.
+The interface is deliberately refrigerator-like and mobile-first rather than spreadsheet-like.
 
-## Fast interaction design
+## Persistence modes
 
-The primary interaction should take seconds. Each item card exposes `− 1`, `+ 1`, `Used`, and `Add to list`. Later versions can add barcode scanning, receipt/photo capture, OCR/vision-assisted recognition and voice input.
+### Supabase cloud mode
+If the two public Supabase environment variables are configured, the app uses Supabase Auth + Postgres + RLS and syncs across devices.
 
-## Stock states
+### Local-first mode
+Without cloud configuration the full loop still works in browser localStorage. This is intentional: infrastructure should never block validating the daily habit.
 
-- `OK`: quantity is above minimum.
-- `LOW`: quantity is at/below minimum.
-- `OUT`: zero stock.
-- `EXPIRING`: expiration is near.
-- `EXPIRED`: expiration passed.
+## Backend
 
-## Data model
+The live migration uses tables prefixed with `hfw_` so the product can coexist safely inside a shared Supabase project. RLS is enabled and RPC stock/meal actions verify household membership.
 
-See `docs/data-model.md`. The model separates products from physical stock lots so that two cartons of milk purchased on different days can have different expiry dates.
+Core entities:
 
-## Roadmap
+- households / members
+- locations
+- products
+- inventory lots
+- inventory events
+- meal templates / ingredients
+- meal events
+- notification preferences
 
-### V0 — beautiful manual inventory
-Zones, products, stock lots, expiry, minimum stock and shopping list.
+## Email notifications
 
-### V1 — continuity engine
-Consumption history, days-of-cover, suggested reorder quantity and household routines.
+A daily Vercel Cron route is included at `/api/digest`. For reliable transactional delivery, **Resend** is the one additional SaaS recommended for v0.
 
-### V2 — assisted capture
-Barcode, receipt/photo and voice-assisted stock updates.
+Required server-side variables:
 
-### V3 — Home Stock Intelligence
-Forecast depletion, identify waste, suggest meals from expiring ingredients, learn preferred brands/package sizes and estimate household food spend.
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `RESEND_API_KEY`
+- `EMAIL_FROM`
+- `CRON_SECRET`
 
-## Design direction
+The digest is action-oriented: it sends when coverage is below the configured threshold or stock needs attention.
 
-Warm, calm and visual rather than spreadsheet-like: large location cards, food photography/icons, status chips, generous spacing, bottom navigation and one-tap quantity changes. The refrigerator/freezer/pantry metaphor should remain visible throughout the experience.
+## Run
+
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
+
+## Deploy
+
+Designed for Vercel. Add the public Supabase URL/key for cloud sync. Add the four private variables above only when enabling email delivery.
+
+## Product principle
+
+Computer vision is deliberately not allowed to block v0. The next recognition layer should be:
+
+`photo → model suggestions → human review → confirmed stock update`
+
+Only after measured accuracy is good enough should vision write inventory automatically.
+
+See `docs/product-spec.md`, `docs/data-model.md` and `docs/architecture.md`.
