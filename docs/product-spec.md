@@ -1,74 +1,114 @@
-# Product specification
+# Product specification — Kitchen Readiness
 
-## North-star experience
+## North-star outcome
 
-Open the app in the kitchen and understand the household in under 10 seconds.
+The app should make **eating at home the lowest-friction option**.
 
-### Home
+Primary metric:
 
-Header: `Mi cocina` + household selector.
+### Home Meal Coverage Days
 
-Hero card: **Stock saludable 82%** with four compact metrics:
-- 47 products at home
-- 5 low stock
-- 3 expiring soon
-- 2 on shopping list
+A conservative estimate of the number of full days the current inventory can cover **breakfast + lunch + dinner + snack**, accounting for shared ingredients rather than double-counting them across alternative meals.
 
-Below:
+## Core loop
 
-**Where is it?**
-- 🧊 Refrigeradora — 18 items
-- ❄️ Freezer — 12 items
-- 🥫 Despensa — 14 items
-- 🧺 Organizadores — 3 items
+`capture/update → inventory → meal capacity → consume → decrement → report → restock → replenish`
 
-**Needs attention**
-Cards ordered by urgency: expired → expiring → out → low.
+A vertical slice is complete only when the same user can move through the full loop without leaving the product.
 
-**Quick add**
-Large floating `+` opens: Scan barcode / Take photo / Add manually / Speak.
+## Home
 
-Bottom navigation: `Inicio · Stock · Comprar · Actividad · Casa`.
+The hero answers one question in seconds:
 
-## Location view
+> **You have food for N days.**
 
-The user should feel like opening a digital fridge, not filtering a database. Show sub-zones such as door, upper shelf, lower shelf and vegetable drawer. Each product card shows image/icon, quantity, expiry/status and large `−` / `+` controls.
+Under it:
 
-## Shopping list
+- breakfast capacity
+- lunch capacity
+- dinner capacity
+- snack capacity
+- stock health
+- refrigerator / freezer / pantry / organizer readiness
+- attention queue
 
-Two sections:
+## Stock
 
-**Suggested** — generated from minimum/target stock and later from expected depletion.
+Every item exposes:
 
-**Manual** — arbitrary household needs.
+- current quantity
+- unit
+- minimum stock
+- ideal stock
+- storage space
+- quick − / + controls
+- direct numeric entry
 
-When an item is marked bought, offer a one-step flow to convert it into stock: quantity, location and optional expiry.
+Minimum = point where continuity is at risk.  
+Ideal = normal post-shopping target.
 
-## Continuity engine
+## Meal engine
 
-For each product maintain two user-friendly concepts:
+Four types: breakfast, lunch, dinner and snack.
 
-- **Minimum:** point at which I do not want to run out.
-- **Ideal:** quantity I normally want after shopping.
+A meal is available only when all non-optional ingredients can cover at least one serving. Pressing **Comí esto** consumes the ingredient quantities and creates event history.
 
-Example: eggs: on hand 4, minimum 6, ideal 18 → suggest buying 14.
+This makes the product materially different from a grocery counter: inventory is translated into **meals and days**.
 
-Future prediction improves this with consumption velocity and purchase cadence.
+## Smart Restock
 
-## Expiry UX
+Suggested quantity:
 
-Use FIFO by default. When consuming an item with multiple lots, suggest the lot expiring first. Surface `Consume primero` rather than requiring the user to reason about lot IDs.
+`max(ideal stock - current stock, 0)`
 
-## Home beyond food
+Only items at/below minimum are promoted into the urgent list. The UI also estimates how much meal capacity a replenishment unlocks.
 
-The same architecture can later support cleaning products, toiletries, pet supplies, medicine cabinet metadata (without medical decision-making), paper goods and other household consumables. Keep locations and categories generic enough for this expansion.
+## Reporting
 
-## Success metrics
+The reporting section is part of the product loop, not decoration.
 
-The product succeeds if it reduces:
-- unexpected stock-outs,
-- duplicate purchases,
-- expired/wasted food,
-- time spent checking what is at home.
+Initial metrics:
 
-Leading product metrics: weekly inventory updates, shopping-list conversion, percentage of active products with min/ideal stock configured, and percentage of purchases captured.
+- Home Meal Coverage Days
+- stock health %
+- breakfast/lunch/dinner/snack capacity
+- meals logged in last 7 days
+- current stockouts
+- low-stock items
+- inventory event history
+- waste events when they start being captured
+
+Future evidence-based metrics:
+
+- average depletion velocity
+- forecast stockout date
+- purchase cadence
+- cost per home meal
+- estimated outside-food spend avoided
+- waste rate
+- nutrition coverage
+
+Do not invent monetary savings until cost and behavior data exist.
+
+## Notifications
+
+Prefer consequence-based alerts over noisy item alerts.
+
+Good:
+> Breakfast coverage fell below 2 days. Buying 12 eggs and 6 bananas restores ~5 days.
+
+Bad:
+> You have 4 eggs.
+
+Daily email digest should only send when coverage crosses the configured threshold or important stock attention exists.
+
+## Vision roadmap
+
+1. manual entry must be excellent first
+2. photo upload
+3. model proposes item + approximate quantity
+4. user corrects/approves
+5. corrections become labeled evidence
+6. automate only after measured accuracy justifies it
+
+Vision is an accelerator, not the source of truth in v0.
