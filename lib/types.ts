@@ -1,4 +1,4 @@
-export type LocationType = "fridge" | "freezer" | "pantry" | "organizer";
+export type LocationType = "fridge" | "freezer" | "pantry" | "organizer" | "other";
 export type MealType = "breakfast" | "lunch" | "dinner" | "snack";
 
 export type Location = {
@@ -21,6 +21,7 @@ export type Item = {
   locationName: string;
   locationType: LocationType;
   nextExpiry?: string | null;
+  isPerishable?: boolean;
 };
 
 export type Ingredient = {
@@ -63,4 +64,17 @@ export type KitchenState = {
   meals: Meal[];
   events: InventoryEvent[];
   mealEvents: MealEvent[];
+};
+
+export type VisionPrediction = {
+  label: string;
+  score: number;
+  bbox: [number, number, number, number];
+};
+
+export type VisionGroup = {
+  label: string;
+  count: number;
+  confidence: number;
+  bboxes: Array<[number, number, number, number]>;
 };

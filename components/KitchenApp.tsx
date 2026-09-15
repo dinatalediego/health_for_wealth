@@ -4,9 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { coverageDays, itemStatus, mealCounts, mealTypeLabel, mealsUnlockedByRestock, restockSuggestions, servingsForMeal, stockHealth } from "@/lib/engine";
 import { demoState } from "@/lib/demo";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
+import { PhotoScan } from "@/components/PhotoScan";
+import { PersonalKitchen } from "@/components/PersonalKitchen";
+import { DigitalTwin } from "@/components/DigitalTwin";
+import { VisionReporting } from "@/components/VisionReporting";
 import type { Item, KitchenState, LocationType, Meal, MealType } from "@/lib/types";
 
-type Tab = "home" | "stock" | "meals" | "shopping" | "reporting";
+type Tab = "home" | "stock" | "scan" | "meals" | "shopping" | "reporting" | "manage";
 const STORAGE_KEY = "health_for_wealth_kitchen_v0";
 
 const cloneDemo = () => JSON.parse(JSON.stringify(demoState)) as KitchenState;
@@ -23,6 +27,7 @@ export function KitchenApp() {
   const [toast,setToast] = useState("");
   const [stockFilter,setStockFilter] = useState<LocationType | "all">("all");
   const [mealFilter,setMealFilter] = useState<MealType | "all">("all");
+  const [scanLocationId,setScanLocationId] = useState<string | undefined>();
 
   const supabase = getSupabase();
 
@@ -75,7 +80,7 @@ export function KitchenApp() {
     const items: Item[] = (inv.data ?? []).map((r:any)=>({
       id:r.product_id,householdId:r.household_id,name:r.name,emoji:r.emoji,category:r.category,unit:r.unit,
       quantity:Number(r.quantity),min:Number(r.min_stock),ideal:Number(r.ideal_stock),
-      locationId:r.location_id,locationName:r.location_name,locationType:r.location_type,nextExpiry:r.next_expiry
+      locationId:r.location_id,locationName:r.location_name,locationType:r.location_type,nextExpiry:r.next_expiry,isPerishable:r.is_perishable
     }));
     const mealRows = meals.data ?? [];
     const ingredients = ings.data ?? [];
@@ -97,7 +102,12 @@ export function KitchenApp() {
 
   function flash(message:string) {
     setToast(message);
-    window.setTimeout(()=>setToast(""),2600);
+    window.setTimeout(()=>setToast(""),3000);
+  }
+
+  function goScan(locationId?:string) {
+    setScanLocationId(locationId);
+    setTab("scan");
   }
 
   async function setQuantity(item:Item, quantity:number) {
@@ -163,20 +173,25 @@ export function KitchenApp() {
           <div className="eyebrow">HEALTH FOR WEALTH</div>
           <h1>Kitchen Readiness</h1>
         </div>
-        <div className={`sync-pill ${cloud?"cloud":""}`}>{cloud?"☁️ Supabase":"📱 Local"}</div>
+        <div className="topbar-actions">
+          <div className={"sync-pill " + (cloud?"cloud":"")}>{cloud?"☁️ Supabase":"📱 Local"}</div>
+          <button className="icon-button" onClick={()=>setTab("manage")}>⚙ Cocina</button>
+        </div>
       </header>
 
-      {tab==="home" && <Home state={state} metrics={metrics} go={setTab} />}
-      {tab==="stock" && <Stock state={state} filter={stockFilter} setFilter={setStockFilter} setQuantity={setQuantity} updateTargets={updateTargets} />}
+      {tab==="home" && <Home state={state} metrics={metrics} go={setTab} cloud={cloud} goScan={goScan} />}
+      {tab==="stock" && <Stock state={state} filter={stockFilter} setFilter={setStockFilter} setQuantity={setQuantity} updateTargets={updateTargets} goManage={()=>setTab("manage")} />}
+      {tab==="scan" && <PhotoScan state={state} cloud={cloud} session={session} initialLocationId={scanLocationId} onRefresh={bootstrapAndLoad} onManageKitchen={()=>setTab("manage")} flash={flash} />}
       {tab==="meals" && <Meals state={state} filter={mealFilter} setFilter={setMealFilter} consume={consumeMeal} />}
       {tab==="shopping" && <Shopping state={state} restock={restock} />}
-      {tab==="reporting" && <Reporting state={state} />}
+      {tab==="reporting" && <Reporting state={state} cloud={cloud} />}
+      {tab==="manage" && <PersonalKitchen state={state} cloud={cloud} onRefresh={bootstrapAndLoad} flash={flash} />}
 
       <nav className="bottom-nav">
         <NavButton active={tab==="home"} icon="⌂" label="Inicio" onClick={()=>setTab("home")} />
         <NavButton active={tab==="stock"} icon="▦" label="Stock" onClick={()=>setTab("stock")} />
+        <NavButton active={tab==="scan"} icon="📷" label="Scan" onClick={()=>goScan()} />
         <NavButton active={tab==="meals"} icon="🍽" label="Meals" onClick={()=>setTab("meals")} />
-        <NavButton active={tab==="shopping"} icon="🛒" label="Comprar" onClick={()=>setTab("shopping")} />
         <NavButton active={tab==="reporting"} icon="↗" label="Reportes" onClick={()=>setTab("reporting")} />
       </nav>
 
@@ -216,7 +231,7 @@ function CloudLogin({onLocal}:{onLocal:()=>void}) {
   </main>
 }
 
-function Home({state,metrics,go}:{state:KitchenState;metrics:any;go:(t:Tab)=>void}) {
+function Home({state,metrics,go,cloud,goScan}:{state:KitchenState;metrics:any;go:(t:Tab)=>void;cloud:boolean;goScan:(id?:string)=>void}) {
   const attention=state.items.filter(i=>itemStatus(i)!=="OK").slice(0,4);
   return <section className="page">
     <div className="hero">
@@ -225,7 +240,7 @@ function Home({state,metrics,go}:{state:KitchenState;metrics:any;go:(t:Tab)=>voi
         <div className="coverage"><strong>{metrics.coverage}</strong><span>días</span></div>
         <p>con desayuno, almuerzo, cena y snack disponibles.</p>
       </div>
-      <div className="health-ring" style={{"--health":`${metrics.health*3.6}deg`} as any}>
+      <div className="health-ring" style={{"--health":String(metrics.health*3.6)+"deg"} as any}>
         <span>{metrics.health}%</span><small>stock sano</small>
       </div>
     </div>
@@ -234,15 +249,18 @@ function Home({state,metrics,go}:{state:KitchenState;metrics:any;go:(t:Tab)=>voi
       {(["breakfast","lunch","dinner","snack"] as MealType[]).map(t=><div key={t}><span>{({breakfast:"🥣",lunch:"🍲",dinner:"🌙",snack:"🍎"} as any)[t]}</span><strong>{metrics.counts[t]}</strong><small>{mealTypeLabel(t)}</small></div>)}
     </div>
 
-    <div className="section-head"><div><div className="eyebrow">YOUR KITCHEN</div><h2>¿Dónde está?</h2></div><button onClick={()=>go("stock")}>Ver stock</button></div>
-    <div className="storage-grid">
+    <div className="section-head"><div><div className="eyebrow">DIGITAL TWIN</div><h2>Tu cocina visual</h2></div><button onClick={()=>goScan()}>Nuevo scan</button></div>
+    <DigitalTwin state={state} cloud={cloud} onScanLocation={goScan}/>
+
+    {!cloud && <div className="storage-grid">
       <StorageCard type="fridge" title="Refrigeradora" icon="❄️" state={state}/>
       <StorageCard type="freezer" title="Freezer" icon="🧊" state={state}/>
       <StorageCard type="pantry" title="Despensa" icon="🥫" state={state}/>
       <StorageCard type="organizer" title="Organizadores" icon="🧺" state={state}/>
-    </div>
+    </div>}
 
-    <div className="action-grid">
+    <div className="action-grid three">
+      <button className="action-card scan" onClick={()=>goScan()}><span>📷</span><div><strong>Photo Scan Beta</strong><small>Foto → sugerencias → confirmar</small></div><b>→</b></button>
       <button className="action-card eat" onClick={()=>go("meals")}><span>🍽️</span><div><strong>¿Qué puedo comer?</strong><small>Solo opciones posibles ahora</small></div><b>→</b></button>
       <button className="action-card buy" onClick={()=>go("shopping")}><span>🛒</span><div><strong>Smart Restock</strong><small>{metrics.restock.length} cosas necesitan atención</small></div><b>→</b></button>
     </div>
@@ -266,12 +284,12 @@ function StorageCard({type,title,icon,state}:{type:LocationType;title:string;ico
   </div>
 }
 
-function Stock({state,filter,setFilter,setQuantity,updateTargets}:{state:KitchenState;filter:any;setFilter:any;setQuantity:any;updateTargets:any}) {
+function Stock({state,filter,setFilter,setQuantity,updateTargets,goManage}:{state:KitchenState;filter:any;setFilter:any;setQuantity:any;updateTargets:any;goManage:()=>void}) {
   const items=filter==="all"?state.items:state.items.filter(i=>i.locationType===filter);
   return <section className="page">
-    <div className="page-title"><div className="eyebrow">INVENTORY</div><h2>Tu cocina, sin Excel.</h2><p>Toca − / + o escribe la cantidad real. Min e ideal controlan las alertas y compras.</p></div>
+    <div className="section-head"><div className="page-title"><div className="eyebrow">INVENTORY</div><h2>Tu cocina, sin Excel.</h2><p>Toca − / + o escribe la cantidad real. Min e ideal controlan las alertas y compras.</p></div><button className="manage-link" onClick={goManage}>⚙ Personal Kitchen</button></div>
     <div className="chips">
-      {[["all","Todo"],["fridge","Refrigeradora"],["freezer","Freezer"],["pantry","Despensa"],["organizer","Organizadores"]].map(([v,l])=><button className={filter===v?"active":""} key={v} onClick={()=>setFilter(v)}>{l}</button>)}
+      {[["all","Todo"],["fridge","Refrigeradora"],["freezer","Freezer"],["pantry","Despensa"],["organizer","Organizadores"],["other","Otros"]].map(([v,l])=><button className={filter===v?"active":""} key={v} onClick={()=>setFilter(v)}>{l}</button>)}
     </div>
     <div className="inventory-list">
       {items.map(item=><div className="inventory-card" key={item.id}>
@@ -331,7 +349,7 @@ function Shopping({state,restock}:{state:KitchenState;restock:any}) {
   </section>
 }
 
-function Reporting({state}:{state:KitchenState}) {
+function Reporting({state,cloud}:{state:KitchenState;cloud:boolean}) {
   const counts=mealCounts(state), coverage=coverageDays(state), health=stockHealth(state);
   const weekAgo=Date.now()-7*86400000;
   const mealWeek=state.mealEvents.filter(e=>new Date(e.occurredAt).getTime()>=weekAgo).reduce((s,e)=>s+e.servings,0);
@@ -355,6 +373,7 @@ function Reporting({state}:{state:KitchenState}) {
         <p>{state.items.filter(i=>itemStatus(i)==="OK").length} OK · {state.items.filter(i=>itemStatus(i)==="LOW").length} bajos · {out} agotados</p>
       </article>
     </div>
+    <VisionReporting householdId={state.householdId} cloud={cloud}/>
     <article className="chart-card"><div className="eyebrow">BEHAVIOR LOOP</div><h3>Actividad reciente</h3>
       <div className="timeline">
         {state.events.slice(0,8).map(e=>{const item=state.items.find(i=>i.id===e.productId);return <div key={e.id}><span>{e.delta<0?"−":"+"}</span><p><strong>{item?.name??"Item"}</strong><small>{e.delta} {e.unit} · {new Date(e.occurredAt).toLocaleDateString("es-PE")}</small></p></div>})}

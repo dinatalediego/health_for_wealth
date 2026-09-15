@@ -4,11 +4,15 @@ A mobile-first household food operating system. The product is not trying to ans
 
 > **How many days can I eat well at home with the food I have right now?**
 
-## Vertical slice v0
+## Vertical slices v0 + Photo Scan Beta
 
 The current product closes the loop:
 
-`update stock → calculate meal capacity → choose a meal → consume → decrement ingredients → report → smart restock → replenish`
+`update stock → meal capacity → consume → decrement → report → smart restock → replenish`
+
+Visual loop:
+
+`photo → on-device detection → human review → confirmed stock → meals → reporting`
 
 ### Screens
 
@@ -16,7 +20,10 @@ The current product closes the loop:
 - **Stock** — refrigerator / freezer / pantry / organizers with fast quantity entry and min/ideal targets.
 - **Meals** — breakfast, lunch, dinner and snacks that are actually possible from current stock.
 - **Comprar** — replenishment to ideal stock, prioritized by meal capacity unlocked.
-- **Reportes** — coverage, stock health, meals logged, stockouts, meal capacity and event history.
+- **Photo Scan Beta** — camera/upload → free browser inference → review → confirmed inventory update.
+- **Personal Kitchen** — custom foods, meals and storage spaces.
+- **Digital Twin** — latest private photo and fill snapshot per storage space.
+- **Reportes** — coverage, stock health, meals, stockouts, event history and Computer Vision review metrics.
 
 The interface is deliberately refrigerator-like and mobile-first rather than spreadsheet-like.
 
@@ -70,10 +77,6 @@ Designed for Vercel. Add the public Supabase URL/key for cloud sync. Add the fou
 
 ## Product principle
 
-Computer vision is deliberately not allowed to block v0. The next recognition layer should be:
-
-`photo → model suggestions → human review → confirmed stock update`
-
-Only after measured accuracy is good enough should vision write inventory automatically.
+Computer Vision now ships as a human-in-the-loop beta using TensorFlow.js + COCO-SSD in the browser. It never writes inventory without explicit confirmation. See `docs/vision-beta.md`.
 
 See `docs/product-spec.md`, `docs/data-model.md` and `docs/architecture.md`.
