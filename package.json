@@ -14,7 +14,9 @@
     "react": "19.1.9",
     "react-dom": "19.1.9",
     "@tensorflow-models/coco-ssd": "^2.2.3",
-    "@tensorflow/tfjs": "^4.22.0"
+    "@tensorflow/tfjs": "^4.22.0",
+    "@zxing/browser": "^0.1.5",
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.4",
