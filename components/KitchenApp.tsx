@@ -28,6 +28,7 @@ export function KitchenApp() {
   const [stockFilter,setStockFilter] = useState<LocationType | "all">("all");
   const [mealFilter,setMealFilter] = useState<MealType | "all">("all");
   const [scanLocationId,setScanLocationId] = useState<string | undefined>();
+  const [recentPurchase,setRecentPurchase] = useState<{name:string;locationId:string} | null>(null);
 
   const supabase = getSupabase();
 
@@ -57,6 +58,19 @@ export function KitchenApp() {
     if (!cloud) localStorage.setItem(STORAGE_KEY,JSON.stringify(state));
   },[state,cloud]);
 
+  useEffect(()=>{
+    const applyHash=()=>{
+      const hash=window.location.hash.replace("#","");
+      if (hash==="shopping") setTab("shopping");
+      if (hash==="scan") goScan();
+      if (hash==="reporting") setTab("reporting");
+    };
+    applyHash();
+    window.addEventListener("hashchange",applyHash);
+    return ()=>window.removeEventListener("hashchange",applyHash);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
+
   const metrics = useMemo(()=>({
     coverage:coverageDays(state),
     counts:mealCounts(state),
@@ -80,7 +94,7 @@ export function KitchenApp() {
     const items: Item[] = (inv.data ?? []).map((r:any)=>({
       id:r.product_id,householdId:r.household_id,name:r.name,emoji:r.emoji,category:r.category,unit:r.unit,
       quantity:Number(r.quantity),min:Number(r.min_stock),ideal:Number(r.ideal_stock),
-      locationId:r.location_id,locationName:r.location_name,locationType:r.location_type,nextExpiry:r.next_expiry,isPerishable:r.is_perishable
+      locationId:r.location_id,locationName:r.location_name,locationType:r.location_type,nextExpiry:r.next_expiry,isPerishable:r.is_perishable,barcode:r.barcode
     }));
     const mealRows = meals.data ?? [];
     const ingredients = ings.data ?? [];
@@ -159,8 +173,31 @@ export function KitchenApp() {
   }
 
   async function restock(item:Item, amount:number) {
-    await setQuantity(item,item.quantity+amount);
-    flash(`${item.name}: stock repuesto ✓`);
+    if (cloud && supabase) {
+      setBusy(true);
+      const {error}=await supabase.rpc("hfw_record_purchase",{
+        p_product_id:item.id,
+        p_quantity:amount,
+        p_location_id:item.locationId
+      });
+      if (error) {
+        flash(error.message);
+      } else {
+        await bootstrapAndLoad();
+        setRecentPurchase({name:item.name,locationId:item.locationId});
+        flash(item.name+": compra registrada ✓ · conviene reconciliar con un nuevo scan");
+      }
+      setBusy(false);
+      return;
+    }
+
+    setState(s=>({
+      ...s,
+      items:s.items.map(i=>i.id===item.id?{...i,quantity:i.quantity+amount}:i),
+      events:[{id:crypto.randomUUID(),productId:item.id,type:"purchase",delta:amount,unit:item.unit,occurredAt:nowIso(),reason:"smart_restock"},...s.events]
+    }));
+    setRecentPurchase({name:item.name,locationId:item.locationId});
+    flash(item.name+": compra registrada ✓");
   }
 
   if (!sessionReady) return <main className="shell loading">Preparando tu cocina…</main>;
@@ -183,8 +220,8 @@ export function KitchenApp() {
       {tab==="stock" && <Stock state={state} filter={stockFilter} setFilter={setStockFilter} setQuantity={setQuantity} updateTargets={updateTargets} goManage={()=>setTab("manage")} />}
       {tab==="scan" && <PhotoScan state={state} cloud={cloud} session={session} initialLocationId={scanLocationId} onRefresh={bootstrapAndLoad} onManageKitchen={()=>setTab("manage")} flash={flash} />}
       {tab==="meals" && <Meals state={state} filter={mealFilter} setFilter={setMealFilter} consume={consumeMeal} />}
-      {tab==="shopping" && <Shopping state={state} restock={restock} />}
-      {tab==="reporting" && <Reporting state={state} cloud={cloud} />}
+      {tab==="shopping" && <Shopping state={state} restock={restock} recentPurchase={recentPurchase} goScan={goScan} />}
+      {tab==="reporting" && <Reporting state={state} cloud={cloud} session={session} />}
       {tab==="manage" && <PersonalKitchen state={state} cloud={cloud} onRefresh={bootstrapAndLoad} flash={flash} />}
 
       <nav className="bottom-nav">
@@ -333,13 +370,19 @@ function Meals({state,filter,setFilter,consume}:{state:KitchenState;filter:any;s
   </section>
 }
 
-function Shopping({state,restock}:{state:KitchenState;restock:any}) {
+function Shopping({state,restock,recentPurchase,goScan}:{state:KitchenState;restock:any;recentPurchase:{name:string;locationId:string}|null;goScan:(id?:string)=>void}) {
   const suggestions=restockSuggestions(state);
   return <section className="page">
-    <div className="page-title"><div className="eyebrow">SMART RESTOCK</div><h2>Compra lo que desbloquea comidas.</h2><p>Prioriza continuidad, no una lista infinita de supermercado.</p></div>
+    <div className="page-title"><div className="eyebrow">SMART RESTOCK</div><h2>Compra lo que desbloquea comidas.</h2><p>Prioriza continuidad, registra la compra y vuelve a observar la cocina.</p></div>
+
+    {recentPurchase && <div className="loop-callout">
+      <div><div className="eyebrow">CLOSE THE LOOP</div><strong>{recentPurchase.name} ya fue registrado como compra.</strong><small>Haz un nuevo scan para reconciliar lo físico con el Digital Twin y comprobar si recuperaste cobertura.</small></div>
+      <button onClick={()=>goScan(recentPurchase.locationId)}>📷 Nuevo scan</button>
+    </div>}
+
     <div className="restock-summary"><strong>{suggestions.length}</strong><span>items para recuperar tu stock ideal</span></div>
     <div className="shopping-list">
-      {suggestions.length===0 && <div className="empty">Tu cocina ya está sobre los mínimos. No compres por inercia. ✓</div>}
+      {suggestions.length===0 && <div className="empty">Tu cocina ya está sobre los mínimos. Haz un scan si acabas de guardar compras para verificar la cobertura. ✓</div>}
       {suggestions.map(i=><div className="shopping-row" key={i.id}>
         <span className="food-icon small">{i.emoji}</span>
         <div><strong>{i.name}</strong><small>Comprar {i.suggested} {i.unit} · {mealsUnlockedByRestock(state,i.id)} meals potenciales desbloqueadas</small></div>
@@ -349,7 +392,7 @@ function Shopping({state,restock}:{state:KitchenState;restock:any}) {
   </section>
 }
 
-function Reporting({state,cloud}:{state:KitchenState;cloud:boolean}) {
+function Reporting({state,cloud,session}:{state:KitchenState;cloud:boolean;session:any}) {
   const counts=mealCounts(state), coverage=coverageDays(state), health=stockHealth(state);
   const weekAgo=Date.now()-7*86400000;
   const mealWeek=state.mealEvents.filter(e=>new Date(e.occurredAt).getTime()>=weekAgo).reduce((s,e)=>s+e.servings,0);
@@ -374,6 +417,7 @@ function Reporting({state,cloud}:{state:KitchenState;cloud:boolean}) {
       </article>
     </div>
     <VisionReporting householdId={state.householdId} cloud={cloud}/>
+    <EmailLoopStatus householdId={state.householdId} cloud={cloud} session={session}/>
     <article className="chart-card"><div className="eyebrow">BEHAVIOR LOOP</div><h3>Actividad reciente</h3>
       <div className="timeline">
         {state.events.slice(0,8).map(e=>{const item=state.items.find(i=>i.id===e.productId);return <div key={e.id}><span>{e.delta<0?"−":"+"}</span><p><strong>{item?.name??"Item"}</strong><small>{e.delta} {e.unit} · {new Date(e.occurredAt).toLocaleDateString("es-PE")}</small></p></div>})}
@@ -382,6 +426,64 @@ function Reporting({state,cloud}:{state:KitchenState;cloud:boolean}) {
     </article>
     <div className="footnote">Desperdicio registrado esta semana: <strong>{wasteWeek}</strong>. En siguientes versiones se añadirá gasto evitado y costo por meal con datos reales, no estimaciones inventadas.</div>
   </section>
+}
+
+function EmailLoopStatus({householdId,cloud,session}:{householdId?:string;cloud:boolean;session:any}) {
+  const supabase=getSupabase();
+  const [events,setEvents]=useState<any[]>([]);
+  const [testing,setTesting]=useState(false);
+  const [message,setMessage]=useState("");
+
+  async function load() {
+    if(!cloud||!supabase||!householdId)return;
+    const {data}=await supabase
+      .from("hfw_notification_events")
+      .select("event_type,status,reason,coverage_days,created_at,error_message")
+      .eq("household_id",householdId)
+      .order("created_at",{ascending:false})
+      .limit(8);
+    setEvents(data??[]);
+  }
+
+  useEffect(()=>{load();},[cloud,householdId]);
+
+  async function testEmail() {
+    if(!session?.access_token||!householdId)return;
+    setTesting(true);
+    setMessage("");
+    try{
+      const response=await fetch("/api/email/test",{
+        method:"POST",
+        headers:{"Content-Type":"application/json",Authorization:"Bearer "+session.access_token},
+        body:JSON.stringify({householdId})
+      });
+      const payload=await response.json();
+      setMessage(response.ok?"Email de prueba enviado ✓":(payload?.error??"No se pudo enviar"));
+      await load();
+    }catch(e:any){
+      setMessage(e?.message??"No se pudo enviar");
+    }finally{
+      setTesting(false);
+    }
+  }
+
+  if(!cloud)return null;
+  return <article className="chart-card">
+    <div className="section-head">
+      <div><div className="eyebrow">EMAIL CONSEQUENCE LOOP</div><h3>Scan → consecuencia → email → compra → scan</h3></div>
+      <button className="email-test-button" onClick={testEmail} disabled={testing}>{testing?"Enviando…":"Enviar prueba"}</button>
+    </div>
+    <p className="scan-note">Los emails inmediatos salen solo ante cambios materiales. El digest diario permanece como red de seguridad y evita duplicados.</p>
+    {message&&<div className="email-message">{message}</div>}
+    <div className="notification-events">
+      {events.map((e,index)=><div key={e.created_at+index}>
+        <span className={"notification-dot "+e.status}></span>
+        <div><strong>{({coverage_alert:"Cobertura crítica",coverage_recovered:"Cobertura recuperada",daily_digest:"Kitchen Brief",test_email:"Prueba de email"} as any)[e.event_type]??e.event_type}</strong><small>{e.reason??e.error_message??""} · {new Date(e.created_at).toLocaleString("es-PE")}</small></div>
+        <em>{e.status}</em>
+      </div>)}
+      {!events.length&&<div className="empty">Aún no hay notificaciones. Puedes enviar una prueba para validar Resend.</div>}
+    </div>
+  </article>
 }
 
 function Kpi({big,label,note}:{big:any;label:string;note:string}) { return <div className="kpi"><small>{note}</small><strong>{big}</strong><span>{label}</span></div>; }
