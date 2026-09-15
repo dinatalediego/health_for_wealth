@@ -1,64 +1,108 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import {
+  evaluateKitchen,
+  kitchenEmailHtml,
+  logNotification,
+  recordStateSnapshot,
+  sendResendEmail,
+  serviceClient
+} from "@/lib/server/kitchen";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const resendKey = process.env.RESEND_API_KEY;
-  const from = process.env.EMAIL_FROM;
-
-  if (!secret || !url || !serviceKey || !resendKey || !from) {
-    return NextResponse.json({ error: "digest_not_configured" }, { status: 503 });
-  }
-  if (req.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secret) return NextResponse.json({ error: "cron_secret_missing" }, { status: 503 });
+  if (req.headers.get("authorization") !== "Bearer " + secret) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const supabase = createClient(url, serviceKey, { auth: { persistSession: false } });
+  const supabase = serviceClient();
   const { data: prefs, error } = await supabase
     .from("hfw_notification_preferences")
-    .select("household_id,email,coverage_threshold,digest_enabled")
+    .select("household_id,user_id,email,coverage_threshold,digest_enabled")
     .eq("digest_enabled", true);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   let sent = 0;
+  let skipped = 0;
+  let failed = 0;
+  const day = new Date().toISOString().slice(0, 10);
+
   for (const pref of prefs ?? []) {
-    if (!pref.email) continue;
+    if (!pref.email) {
+      skipped++;
+      continue;
+    }
 
-    const [{ data: items }, { data: meals }] = await Promise.all([
-      supabase.from("hfw_inventory_state").select("*").eq("household_id", pref.household_id),
-      supabase.from("hfw_meal_availability").select("*").eq("household_id", pref.household_id)
-    ]);
+    try {
+      const evaluation = await evaluateKitchen(pref.household_id);
+      await recordStateSnapshot(pref.household_id, evaluation, "digest", null);
 
-    const byType: Record<string, number> = { breakfast:0,lunch:0,dinner:0,snack:0 };
-    (meals ?? []).forEach((m:any) => {
-      byType[m.meal_type] = Math.max(byType[m.meal_type] ?? 0, Number(m.servings_available ?? 0));
-    });
-    const coverage = Math.min(byType.breakfast,byType.lunch,byType.dinner,byType.snack);
-    const low = (items ?? []).filter((i:any)=>Number(i.quantity)<=Number(i.min_stock));
+      const threshold = Number(pref.coverage_threshold ?? 3);
+      const needsAttention = evaluation.coverage <= threshold || evaluation.lowStockCount > 0;
+      if (!needsAttention) {
+        skipped++;
+        continue;
+      }
 
-    // Send the daily digest when there is something useful to act on.
-    if (coverage > Number(pref.coverage_threshold ?? 3) && low.length === 0) continue;
+      const dedupeKey = "digest:" + day;
+      const { data: existing } = await supabase
+        .from("hfw_notification_events")
+        .select("status")
+        .eq("household_id", pref.household_id)
+        .eq("dedupe_key", dedupeKey)
+        .maybeSingle();
 
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#173c2b">
-        <h1>Kitchen Readiness</h1>
-        <p style="font-size:24px"><strong>${coverage} días</strong> de cobertura conservadora</p>
-        <p>🥣 ${byType.breakfast} desayunos · 🍲 ${byType.lunch} almuerzos · 🌙 ${byType.dinner} cenas · 🍎 ${byType.snack} snacks</p>
-        <h3>${low.length ? "Necesita atención" : "Tu cocina está preparada"}</h3>
-        <ul>${low.slice(0,8).map((i:any)=>`<li>${i.emoji} ${i.name}: ${i.quantity} ${i.unit} → ideal ${i.ideal_stock}</li>`).join("")}</ul>
-      </div>`;
+      if (existing?.status === "sent") {
+        skipped++;
+        continue;
+      }
 
-    const response = await fetch("https://api.resend.com/emails", {
-      method:"POST",
-      headers:{ "Authorization":`Bearer ${resendKey}`,"Content-Type":"application/json" },
-      body:JSON.stringify({from,to:[pref.email],subject:`Kitchen Brief · ${coverage} días cubiertos`,html})
-    });
-    if (response.ok) sent++;
+      const reason = evaluation.coverage <= threshold
+        ? "Cobertura en o por debajo del umbral de " + threshold + " días"
+        : evaluation.lowStockCount + " productos están en o por debajo de su mínimo";
+
+      const email = await sendResendEmail({
+        to: pref.email,
+        subject: "Kitchen Brief · " + evaluation.coverage + " días cubiertos",
+        html: kitchenEmailHtml({
+          evaluation,
+          previousCoverage: null,
+          reason,
+          recovered: false
+        })
+      });
+
+      await logNotification({
+        householdId: pref.household_id,
+        userId: pref.user_id,
+        type: "daily_digest",
+        dedupeKey,
+        status: "sent",
+        coverage: evaluation.coverage,
+        reason,
+        providerMessageId: email?.id ?? null,
+        metadata: { threshold }
+      });
+
+      sent++;
+    } catch (e: any) {
+      failed++;
+      try {
+        await logNotification({
+          householdId: pref.household_id,
+          userId: pref.user_id,
+          type: "daily_digest",
+          dedupeKey: "digest:" + day,
+          status: "failed",
+          reason: "Daily Kitchen Brief",
+          errorMessage: e?.message ?? "digest_failed"
+        });
+      } catch {}
+    }
   }
-  return NextResponse.json({ ok:true, sent });
+
+  return NextResponse.json({ ok: true, sent, skipped, failed });
 }
