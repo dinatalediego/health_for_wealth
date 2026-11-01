@@ -26,12 +26,10 @@ type MealDraft = {
 
 export function MealPhotoImport({
   state,
-  session,
   onRefresh,
   flash
 }: {
   state: KitchenState;
-  session: any;
   onRefresh: () => Promise<void>;
   flash: (message: string) => void;
 }) {
@@ -66,7 +64,11 @@ export function MealPhotoImport({
 
   async function analyze() {
     if (!configured) return flash("La lectura de meals por foto requiere OPENAI_API_KEY en Vercel.");
-    if (!imgRef.current || !state.householdId || !session?.access_token) return flash("Sube una foto primero.");
+    if (!imgRef.current || !state.householdId || !supabase) return flash("Sube una foto primero.");
+
+    const { data: sessionData } = await supabase.auth.getSession();
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) return flash("Tu sesión expiró. Vuelve a ingresar.");
 
     setBusy(true);
     try {
@@ -75,7 +77,7 @@ export function MealPhotoImport({
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: "Bearer " + session.access_token
+          Authorization: "Bearer " + accessToken
         },
         body: JSON.stringify({ householdId: state.householdId, imageDataUrl })
       });
