@@ -17,6 +17,9 @@ export const demoState: KitchenState = {
     { id:"chicken",name:"Pollo",emoji:"🍗",category:"Proteína",unit:"g",quantity:720,min:400,ideal:1400,locationId:"freezer",locationName:"Freezer",locationType:"freezer" },
     { id:"rice",name:"Arroz",emoji:"🍚",category:"Cereales",unit:"g",quantity:900,min:400,ideal:1500,locationId:"pantry",locationName:"Despensa",locationType:"pantry" },
     { id:"veg",name:"Verduras mixtas",emoji:"🥦",category:"Verduras",unit:"g",quantity:700,min:400,ideal:1200,locationId:"freezer",locationName:"Freezer",locationType:"freezer" },
+    { id:"lentils",name:"Lentejas",emoji:"🫘",category:"Legumbres",unit:"g",quantity:420,min:120,ideal:350,locationId:"pantry",locationName:"Despensa",locationType:"pantry" },
+    { id:"broccoli",name:"Brócoli",emoji:"🥦",category:"Verduras",unit:"g",quantity:500,min:180,ideal:600,locationId:"fridge",locationName:"Refrigeradora",locationType:"fridge" },
+    { id:"carrot",name:"Zanahoria",emoji:"🥕",category:"Verduras",unit:"g",quantity:400,min:160,ideal:500,locationId:"fridge",locationName:"Refrigeradora",locationType:"fridge" },
     { id:"tomato",name:"Tomate",emoji:"🍅",category:"Verduras",unit:"unidad",quantity:5,min:3,ideal:8,locationId:"fridge",locationName:"Refrigeradora",locationType:"fridge" },
     { id:"avocado",name:"Palta",emoji:"🥑",category:"Grasas saludables",unit:"unidad",quantity:2,min:2,ideal:5,locationId:"organizer",locationName:"Organizadores",locationType:"organizer" },
     { id:"bread",name:"Pan integral",emoji:"🍞",category:"Cereales",unit:"rebanada",quantity:10,min:6,ideal:20,locationId:"pantry",locationName:"Despensa",locationType:"pantry" },
@@ -31,7 +34,8 @@ export const demoState: KitchenState = {
     { id:"m5",name:"Omelette de verduras",emoji:"🍳",type:"dinner",prepMinutes:12,ingredients:[{productId:"eggs",quantity:3,unit:"unidad"},{productId:"veg",quantity:150,unit:"g"},{productId:"tomato",quantity:1,unit:"unidad"}] },
     { id:"m6",name:"Pollo con palta y tomate",emoji:"🥙",type:"dinner",prepMinutes:15,ingredients:[{productId:"chicken",quantity:160,unit:"g"},{productId:"avocado",quantity:.5,unit:"unidad"},{productId:"tomato",quantity:1,unit:"unidad"}] },
     { id:"m7",name:"Yogur con plátano",emoji:"🍌",type:"snack",prepMinutes:3,ingredients:[{productId:"yogurt",quantity:1,unit:"unidad"},{productId:"banana",quantity:1,unit:"unidad"}] },
-    { id:"m8",name:"Manzana con frutos secos",emoji:"🍎",type:"snack",prepMinutes:2,ingredients:[{productId:"apple",quantity:1,unit:"unidad"},{productId:"nuts",quantity:30,unit:"g"}] }
+    { id:"m8",name:"Manzana con frutos secos",emoji:"🍎",type:"snack",prepMinutes:2,ingredients:[{productId:"apple",quantity:1,unit:"unidad"},{productId:"nuts",quantity:30,unit:"g"}] },
+    { id:"m9",name:"Pollo con lentejas, brócoli y zanahoria",emoji:"🥦",type:"lunch",prepMinutes:25,targetServingsPerWeek:4,ingredients:[{productId:"chicken",quantity:200,unit:"g"},{productId:"lentils",quantity:70,unit:"g"},{productId:"broccoli",quantity:120,unit:"g"},{productId:"carrot",quantity:80,unit:"g"}] }
   ],
   events: [],
   mealEvents: []
