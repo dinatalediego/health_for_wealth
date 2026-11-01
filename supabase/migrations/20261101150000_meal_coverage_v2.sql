@@ -11,9 +11,11 @@ alter table public.hfw_meal_templates
   add constraint hfw_meal_templates_target_servings_per_week_check
   check (target_servings_per_week >= 0 and target_servings_per_week <= 50);
 
+-- Keep historical snapshots unknown rather than backfilling them with zero.
+-- This prevents a false "meal plan recovered" event on the first v2 scan.
 alter table public.hfw_kitchen_state_snapshots
-  add column if not exists meal_plan_readiness_pct int not null default 0,
-  add column if not exists meal_plan_coverage_days numeric not null default 0;
+  add column if not exists meal_plan_readiness_pct int,
+  add column if not exists meal_plan_coverage_days numeric;
 
 -- Preserve the original view column order. PostgreSQL allows CREATE OR REPLACE VIEW
 -- to append columns, but not to rename/reorder the existing contract implicitly.
