@@ -15,6 +15,8 @@ alter table public.hfw_kitchen_state_snapshots
   add column if not exists meal_plan_readiness_pct int not null default 0,
   add column if not exists meal_plan_coverage_days numeric not null default 0;
 
+-- Preserve the original view column order. PostgreSQL allows CREATE OR REPLACE VIEW
+-- to append columns, but not to rename/reorder the existing contract implicitly.
 create or replace view public.hfw_meal_availability
 with (security_invoker = true)
 as
@@ -25,14 +27,14 @@ select
   m.meal_type,
   m.emoji,
   m.prep_minutes,
-  m.target_servings_per_week,
   greatest(
     coalesce(
       floor(min(case when i.optional=false then coalesce(s.quantity,0) / nullif(i.quantity_per_serving,0) end)),
       0
     ),
     0
-  )::int as servings_available
+  )::int as servings_available,
+  m.target_servings_per_week
 from public.hfw_meal_templates m
 join public.hfw_meal_ingredients i on i.meal_id=m.id
 left join public.hfw_inventory_state s on s.product_id=i.product_id and s.household_id=m.household_id
@@ -117,6 +119,16 @@ begin
     )
   on conflict (household_id, name) do nothing;
 
+  -- The reference meal relies on the canonical Pollo product created by v0.
+  -- On a heavily customized household, skip the reference meal rather than create
+  -- an incomplete recipe that would overstate availability.
+  if not exists (
+    select 1 from public.hfw_products
+    where household_id=p_household and name='Pollo'
+  ) then
+    return;
+  end if;
+
   insert into public.hfw_meal_templates(
     household_id,name,meal_type,emoji,prep_minutes,target_servings_per_week
   )
@@ -134,14 +146,6 @@ begin
     else public.hfw_meal_templates.target_servings_per_week
   end
   returning id into v_meal;
-
-  if v_meal is null then
-    select id into v_meal
-    from public.hfw_meal_templates
-    where household_id=p_household
-      and name='Pollo con lentejas, brócoli y zanahoria'
-    limit 1;
-  end if;
 
   insert into public.hfw_meal_ingredients(
     household_id,meal_id,product_id,quantity_per_serving,unit,optional
@@ -172,6 +176,12 @@ begin
 end;
 $$;
 
+-- This helper is used by migration/trigger plumbing only; do not expose a
+-- SECURITY DEFINER function that accepts arbitrary household ids to clients.
+revoke all on function public.hfw_seed_meal_coverage_v2(uuid) from public;
+revoke all on function public.hfw_seed_meal_coverage_v2(uuid) from anon;
+revoke all on function public.hfw_seed_meal_coverage_v2(uuid) from authenticated;
+
 -- Existing households receive the new reference meal once.
 do $$
 declare
@@ -196,6 +206,10 @@ begin
   return new;
 end;
 $$;
+
+revoke all on function public.hfw_seed_meal_coverage_v2_after_bootstrap() from public;
+revoke all on function public.hfw_seed_meal_coverage_v2_after_bootstrap() from anon;
+revoke all on function public.hfw_seed_meal_coverage_v2_after_bootstrap() from authenticated;
 
 drop trigger if exists hfw_notification_seed_meal_coverage_v2 on public.hfw_notification_preferences;
 create trigger hfw_notification_seed_meal_coverage_v2
