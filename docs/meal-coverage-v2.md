@@ -102,10 +102,30 @@ Adds weekly Meal Plan readiness and coverage days.
 ### Email consequence loop / daily digest
 A meal plan can now trigger attention when its proportional coverage crosses the configured day threshold, even if a manually configured item minimum has not yet been crossed.
 
+## Meal Photo Beta
+
+Meal discovery now feeds the same engine through a human-reviewed flow:
+
+`photo → AI proposal → ingredient mapping → quantity review → weekly target → save meal → Meal Coverage`
+
+The API analyzes a plated meal against the household's active food catalog. It proposes a meal name, meal type, preparation time and 2–8 visible ingredients with estimated per-serving quantities.
+
+Safety and truth constraints:
+
+- social-media UI, captions, tableware and unrelated drinks are ignored
+- visible ingredients are estimates, not facts
+- hidden oils, sauces, seasoning, brands, calories and health claims are not invented
+- catalog matches must resolve to an existing household product
+- unmapped ingredients remain unresolved until the user maps or creates them
+- no meal is written until the user explicitly reviews and presses save
+- photo analysis never changes stock
+
+The feature uses the existing optional multimodal environment configuration (`OPENAI_API_KEY` and `OPENAI_VISION_MODEL`). Without it, Meal Coverage v2 continues to work with manual meal creation.
+
 ## Boundaries of v2
 
 Meal targets are explicit user intent. The system does **not** silently infer desired weekly frequency from past behavior yet.
 
-Future intelligence can compare targets with actual meal events and propose an adjustment, but any automatic change to desired meal frequency should remain reviewable by the user.
+Future intelligence can compare desired targets with actual meal events and propose target adjustments, but any automatic change to desired meal frequency should remain reviewable by the user.
 
-A later vertical slice can turn a meal photo into a proposed recipe template (`photo → ingredients → quantities → target frequency → human confirmation`) and then feed it into the same Meal Coverage engine.
+Likewise, photo-derived ingredient quantities remain proposals. The product can learn from corrections later, but human confirmation is the source of truth for saved meal templates.
