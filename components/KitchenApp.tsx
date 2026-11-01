@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { coverageDays, itemStatus, mealCounts, mealTypeLabel, mealsUnlockedByRestock, restockSuggestions, servingsForMeal, stockHealth } from "@/lib/engine";
+import { coverageDays, itemStatus, mealCounts, mealPlanSummary, mealTypeLabel, mealsUnlockedByRestock, restockSuggestions, servingsForMeal, stockHealth } from "@/lib/engine";
 import { demoState } from "@/lib/demo";
 import { getSupabase, isSupabaseConfigured } from "@/lib/supabase";
 import { PhotoScan } from "@/components/PhotoScan";
@@ -75,7 +75,8 @@ export function KitchenApp() {
     coverage:coverageDays(state),
     counts:mealCounts(state),
     health:stockHealth(state),
-    restock:restockSuggestions(state)
+    restock:restockSuggestions(state),
+    plan:mealPlanSummary(state)
   }),[state]);
 
   async function bootstrapAndLoad() {
@@ -100,6 +101,7 @@ export function KitchenApp() {
     const ingredients = ings.data ?? [];
     const mealList: Meal[] = mealRows.map((m:any)=>({
       id:m.meal_id,name:m.name,emoji:m.emoji,type:m.meal_type,prepMinutes:m.prep_minutes,
+      targetServingsPerWeek:Number(m.target_servings_per_week ?? 0),
       ingredients:ingredients.filter((i:any)=>i.meal_id===m.meal_id).map((i:any)=>({
         productId:i.product_id,quantity:Number(i.quantity_per_serving),unit:i.unit,optional:i.optional
       }))
@@ -269,13 +271,14 @@ function CloudLogin({onLocal}:{onLocal:()=>void}) {
 }
 
 function Home({state,metrics,go,cloud,goScan}:{state:KitchenState;metrics:any;go:(t:Tab)=>void;cloud:boolean;goScan:(id?:string)=>void}) {
-  const attention=state.items.filter(i=>itemStatus(i)!=="OK").slice(0,4);
+  const attention=restockSuggestions(state).slice(0,4);
   return <section className="page">
     <div className="hero">
       <div>
         <div className="eyebrow light">HOME MEAL COVERAGE</div>
         <div className="coverage"><strong>{metrics.coverage}</strong><span>días</span></div>
         <p>con desayuno, almuerzo, cena y snack disponibles.</p>
+        {metrics.plan.activeMeals>0 && <small>Plan semanal: {metrics.plan.readinessPct}% listo · {metrics.plan.coveredDays} días cubiertos · limitante {metrics.plan.limitingIngredient?.name ?? "—"}</small>}
       </div>
       <div className="health-ring" style={{"--health":String(metrics.health*3.6)+"deg"} as any}>
         <span>{metrics.health}%</span><small>stock sano</small>
@@ -305,7 +308,7 @@ function Home({state,metrics,go,cloud,goScan}:{state:KitchenState;metrics:any;go
     <div className="section-head"><div><div className="eyebrow">ATTENTION</div><h2>Lo importante ahora</h2></div></div>
     <div className="attention-list">
       {attention.length===0 && <div className="empty">Todo bien. No necesitas pensar en compras ahora. ✓</div>}
-      {attention.map(i=><div className="attention" key={i.id}><span>{i.emoji}</span><div><strong>{i.name}</strong><small>{i.quantity} {i.unit} · mínimo {i.min}</small></div><em>{itemStatus(i)==="OUT"?"Agotado":"Bajo"}</em></div>)}
+      {attention.map(i=><div className="attention" key={i.id}><span>{i.emoji}</span><div><strong>{i.name}</strong><small>{i.quantity} {i.unit} · punto de compra {Math.round(i.effectiveMin*10)/10} {i.unit}{i.mealDriven?" · gobernado también por Meal Coverage":""}</small></div><em>Reponer</em></div>)}
     </div>
   </section>
 }
@@ -355,12 +358,12 @@ function Meals({state,filter,setFilter,consume}:{state:KitchenState;filter:any;s
     .map(m=>({m,servings:servingsForMeal(m,state.items)}))
     .sort((a,b)=>b.servings-a.servings);
   return <section className="page">
-    <div className="page-title"><div className="eyebrow">MEAL ENGINE</div><h2>¿Qué puedo comer ahora?</h2><p>Solo muestra combinaciones que tu stock puede producir.</p></div>
+    <div className="page-title"><div className="eyebrow">MEAL ENGINE</div><h2>¿Qué puedo comer ahora?</h2><p>Solo muestra combinaciones que tu stock puede producir. Las meals con objetivo semanal alimentan Meal Coverage y Smart Restock.</p></div>
     <div className="chips">{[["all","Todas"],["breakfast","Desayuno"],["lunch","Almuerzo"],["dinner","Cena"],["snack","Snack"]].map(([v,l])=><button className={filter===v?"active":""} key={v} onClick={()=>setFilter(v)}>{l}</button>)}</div>
     <div className="meal-grid">
       {meals.map(({m,servings})=><article className={`meal-card ${servings===0?"disabled":""}`} key={m.id}>
         <div className="meal-icon">{m.emoji}</div>
-        <div className="meal-copy"><small>{mealTypeLabel(m.type)} · {m.prepMinutes} min</small><h3>{m.name}</h3>
+        <div className="meal-copy"><small>{mealTypeLabel(m.type)} · {m.prepMinutes} min{(m.targetServingsPerWeek??0)>0?` · objetivo ${m.targetServingsPerWeek}/sem`:""}</small><h3>{m.name}</h3>
           <p>{m.ingredients.filter(x=>!x.optional).map(x=>state.items.find(i=>i.id===x.productId)?.name).filter(Boolean).join(" · ")}</p>
         </div>
         <div className="meal-availability"><strong>{servings}</strong><span>porciones</span></div>
@@ -373,19 +376,19 @@ function Meals({state,filter,setFilter,consume}:{state:KitchenState;filter:any;s
 function Shopping({state,restock,recentPurchase,goScan}:{state:KitchenState;restock:any;recentPurchase:{name:string;locationId:string}|null;goScan:(id?:string)=>void}) {
   const suggestions=restockSuggestions(state);
   return <section className="page">
-    <div className="page-title"><div className="eyebrow">SMART RESTOCK</div><h2>Compra lo que desbloquea comidas.</h2><p>Prioriza continuidad, registra la compra y vuelve a observar la cocina.</p></div>
+    <div className="page-title"><div className="eyebrow">SMART RESTOCK</div><h2>Compra lo que protege tus meals.</h2><p>Combina mínimos manuales con la demanda de tu plan semanal y prioriza continuidad.</p></div>
 
     {recentPurchase && <div className="loop-callout">
       <div><div className="eyebrow">CLOSE THE LOOP</div><strong>{recentPurchase.name} ya fue registrado como compra.</strong><small>Haz un nuevo scan para reconciliar lo físico con el Digital Twin y comprobar si recuperaste cobertura.</small></div>
       <button onClick={()=>goScan(recentPurchase.locationId)}>📷 Nuevo scan</button>
     </div>}
 
-    <div className="restock-summary"><strong>{suggestions.length}</strong><span>items para recuperar tu stock ideal</span></div>
+    <div className="restock-summary"><strong>{suggestions.length}</strong><span>items llegaron a su punto de compra efectivo</span></div>
     <div className="shopping-list">
-      {suggestions.length===0 && <div className="empty">Tu cocina ya está sobre los mínimos. Haz un scan si acabas de guardar compras para verificar la cobertura. ✓</div>}
+      {suggestions.length===0 && <div className="empty">Tu cocina mantiene los mínimos manuales y los buffers del plan semanal. ✓</div>}
       {suggestions.map(i=><div className="shopping-row" key={i.id}>
         <span className="food-icon small">{i.emoji}</span>
-        <div><strong>{i.name}</strong><small>Comprar {i.suggested} {i.unit} · {mealsUnlockedByRestock(state,i.id)} meals potenciales desbloqueadas</small></div>
+        <div><strong>{i.name}</strong><small>Comprar {Math.round(i.suggested*10)/10} {i.unit} · objetivo efectivo {Math.round(i.effectiveIdeal*10)/10} {i.unit}{i.mealDriven?` · plan ~${Math.round((i.mealCoverageDays??0)*10)/10} días`:""} · {mealsUnlockedByRestock(state,i.id)} meals potenciales desbloqueadas</small></div>
         <button onClick={()=>restock(i,i.suggested)}>Comprado</button>
       </div>)}
     </div>
@@ -393,7 +396,7 @@ function Shopping({state,restock,recentPurchase,goScan}:{state:KitchenState;rest
 }
 
 function Reporting({state,cloud,session}:{state:KitchenState;cloud:boolean;session:any}) {
-  const counts=mealCounts(state), coverage=coverageDays(state), health=stockHealth(state);
+  const counts=mealCounts(state), coverage=coverageDays(state), health=stockHealth(state), plan=mealPlanSummary(state);
   const weekAgo=Date.now()-7*86400000;
   const mealWeek=state.mealEvents.filter(e=>new Date(e.occurredAt).getTime()>=weekAgo).reduce((s,e)=>s+e.servings,0);
   const wasteWeek=state.events.filter(e=>e.type==="waste"&&new Date(e.occurredAt).getTime()>=weekAgo).length;
@@ -403,7 +406,8 @@ function Reporting({state,cloud,session}:{state:KitchenState;cloud:boolean;sessi
     <div className="page-title"><div className="eyebrow">REPORTING</div><h2>¿Tu cocina te está cuidando?</h2><p>Métricas para continuidad, hábitos y menos decisiones improvisadas afuera.</p></div>
     <div className="kpi-grid">
       <Kpi big={coverage} label="días cubiertos" note="North Star"/>
-      <Kpi big={`${health}%`} label="stock saludable" note="sobre mínimos"/>
+      <Kpi big={`${health}%`} label="stock saludable" note="mínimos efectivos"/>
+      <Kpi big={`${plan.readinessPct}%`} label="plan semanal" note={`${plan.coveredDays} días`}/>
       <Kpi big={mealWeek} label="meals registradas" note="últimos 7 días"/>
       <Kpi big={out} label="stockouts" note="ahora"/>
     </div>
@@ -413,7 +417,7 @@ function Reporting({state,cloud,session}:{state:KitchenState;cloud:boolean;sessi
       </article>
       <article className="chart-card"><div className="eyebrow">STOCK HEALTH</div><h3>Composición actual</h3>
         <div className="donut" style={{"--p":`${health*3.6}deg`} as any}><span>{health}%</span></div>
-        <p>{state.items.filter(i=>itemStatus(i)==="OK").length} OK · {state.items.filter(i=>itemStatus(i)==="LOW").length} bajos · {out} agotados</p>
+        <p>{state.items.filter(i=>itemStatus(i)==="OK").length} sobre mínimos manuales · {state.items.filter(i=>itemStatus(i)==="LOW").length} bajos · {out} agotados</p>
       </article>
     </div>
     <VisionReporting householdId={state.householdId} cloud={cloud}/>
@@ -424,7 +428,7 @@ function Reporting({state,cloud,session}:{state:KitchenState;cloud:boolean;sessi
         {!state.events.length && <div className="empty">Todavía no hay eventos. Tus actualizaciones empezarán a construir el historial.</div>}
       </div>
     </article>
-    <div className="footnote">Desperdicio registrado esta semana: <strong>{wasteWeek}</strong>. En siguientes versiones se añadirá gasto evitado y costo por meal con datos reales, no estimaciones inventadas.</div>
+    <div className="footnote">Desperdicio registrado esta semana: <strong>{wasteWeek}</strong>. Meal Coverage usa demanda explícita por meal; no inventa ahorro monetario ni preferencias que todavía no registraste.</div>
   </section>
 }
 

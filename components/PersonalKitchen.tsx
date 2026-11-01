@@ -1,8 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import { mealPlanIngredientStatuses, mealPlanSummary, mealTargetStatus } from "@/lib/engine";
 import { getSupabase } from "@/lib/supabase";
+import { MealPhotoImport } from "@/components/MealPhotoImport";
 import type { Item, KitchenState, LocationType, MealType } from "@/lib/types";
+
+const fmt = (value: number) => Number.isInteger(value) ? String(value) : value.toFixed(1);
 
 export function PersonalKitchen({
   state, cloud, onRefresh, flash
@@ -18,8 +22,10 @@ export function PersonalKitchen({
     min: "1", ideal: "5", locationId: state.locations[0]?.id ?? "", isPerishable: true
   });
   const [location, setLocation] = useState({ name: "", type: "other" as LocationType });
-  const [meal, setMeal] = useState({ name: "", emoji: "🍽️", type: "lunch" as MealType, prep: "15" });
+  const [meal, setMeal] = useState({ name: "", emoji: "🍽️", type: "lunch" as MealType, prep: "15", target: "2" });
   const [ingredientQty, setIngredientQty] = useState<Record<string, string>>({});
+  const mealPlan = mealPlanSummary(state);
+  const planIngredients = mealPlanIngredientStatuses(state);
 
   if (!cloud || !supabase || !state.householdId) {
     return (
@@ -82,7 +88,8 @@ export function PersonalKitchen({
         name: meal.name.trim(),
         emoji: meal.emoji || "🍽️",
         meal_type: meal.type,
-        prep_minutes: Math.max(0, Number(meal.prep) || 0)
+        prep_minutes: Math.max(0, Number(meal.prep) || 0),
+        target_servings_per_week: Math.max(0, Number(meal.target) || 0)
       })
       .select("id")
       .single();
@@ -107,10 +114,21 @@ export function PersonalKitchen({
       return flash(ingredientError.message);
     }
 
-    setMeal({ name: "", emoji: "🍽️", type: "lunch", prep: "15" });
+    setMeal({ name: "", emoji: "🍽️", type: "lunch", prep: "15", target: "2" });
     setIngredientQty({});
     await onRefresh();
-    flash("Meal creada ✓");
+    flash("Meal creada y conectada al plan ✓");
+  }
+
+  async function updateMealTarget(id: string, target: number) {
+    const safeTarget = Math.max(0, Number.isFinite(target) ? target : 0);
+    const { error } = await supabase
+      .from("hfw_meal_templates")
+      .update({ target_servings_per_week: safeTarget })
+      .eq("id", id);
+    if (error) return flash(error.message);
+    await onRefresh();
+    flash("Objetivo semanal actualizado ✓");
   }
 
   async function archiveMeal(id: string) {
@@ -125,10 +143,52 @@ export function PersonalKitchen({
       <div className="page-title">
         <div className="eyebrow">PERSONAL KITCHEN</div>
         <h2>Haz que la app se parezca a tu cocina.</h2>
-        <p>Catálogo, recipes y storage spaces son tuyos. El scan visual aprende sobre esta base, no sobre un inventario genérico.</p>
+        <p>Catálogo, recipes y storage spaces son tuyos. Ahora tus objetivos de meals también gobiernan el stock recomendado.</p>
       </div>
 
       <div className="manage-grid">
+        <article className="manage-panel full">
+          <div className="eyebrow">MEAL COVERAGE V2</div>
+          <h3>Del meal que quieres comer al stock que debes tener.</h3>
+          <p>Define cuántas porciones por semana quieres de cada meal. La app suma la demanda compartida de ingredientes y crea un objetivo de reposición sin borrar tus mínimos e ideales manuales.</p>
+
+          <div className="kpi-grid">
+            <div className="kpi"><small>plan semanal</small><strong>{mealPlan.activeMeals}</strong><span>meals con objetivo</span></div>
+            <div className="kpi"><small>objetivo</small><strong>{fmt(mealPlan.targetServings)}</strong><span>porciones / semana</span></div>
+            <div className="kpi"><small>readiness</small><strong>{mealPlan.readinessPct}%</strong><span>del plan cubierto</span></div>
+            <div className="kpi"><small>ingrediente limitante</small><strong>{mealPlan.limitingIngredient?.emoji ?? "—"}</strong><span>{mealPlan.limitingIngredient?.name ?? "Define objetivos"}</span></div>
+          </div>
+
+          {mealPlan.activeMeals > 0 && (
+            <div className="restock-summary"><strong>{mealPlan.coveredDays}</strong><span>días del plan semanal están cubiertos de forma proporcional</span></div>
+          )}
+
+          <div className="manager-list">
+            {planIngredients.map(i => (
+              <div className="manager-row" key={i.id}>
+                <div className="manager-row-head">
+                  <span>{i.emoji}</span>
+                  <div>
+                    <strong>{i.name}</strong>
+                    <small>
+                      stock {fmt(i.quantity)} {i.unit} · demanda semanal {fmt(i.weeklyDemand)} {i.unit} · {fmt(Math.max(0, i.coverageDays))} días equivalentes
+                    </small>
+                    <small>Alimenta: {i.plannedMeals.join(" · ")}</small>
+                  </div>
+                  <div className="manager-row-actions">
+                    {i.deficitToWeeklyTarget > 0
+                      ? <strong>faltan {fmt(i.deficitToWeeklyTarget)} {i.unit}</strong>
+                      : <strong>semana cubierta ✓</strong>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {mealPlan.activeMeals === 0 && <div className="empty">Pon un objetivo semanal mayor a 0 en al menos una meal para activar Meal Coverage.</div>}
+          </div>
+        </article>
+
+        <MealPhotoImport state={state} onRefresh={onRefresh} flash={flash} />
+
         <article className="manage-panel">
           <div className="eyebrow">FOOD CATALOG</div>
           <h3>Agregar alimento</h3>
@@ -211,6 +271,7 @@ export function PersonalKitchen({
               </select>
             </label>
             <label className="field">Preparación (min)<input type="number" min="0" value={meal.prep} onChange={e => setMeal({ ...meal, prep: e.target.value })} /></label>
+            <label className="field">Objetivo semanal<input type="number" min="0" step="1" value={meal.target} onChange={e => setMeal({ ...meal, target: e.target.value })} /></label>
           </div>
 
           <div className="ingredient-grid">
@@ -227,15 +288,35 @@ export function PersonalKitchen({
           </div>
 
           <div className="manager-list">
-            {state.meals.map(m => (
-              <div className="manager-row" key={m.id}>
-                <div className="manager-row-head">
-                  <span>{m.emoji}</span>
-                  <div><strong>{m.name}</strong><small>{m.type} · {m.ingredients.length} ingredientes · {m.prepMinutes} min</small></div>
-                  <div className="manager-row-actions"><button className="soft-action" onClick={() => archiveMeal(m.id)}>Archivar</button></div>
+            {state.meals.map(m => {
+              const status = mealTargetStatus(m, state.items);
+              return (
+                <div className="manager-row" key={m.id}>
+                  <div className="manager-row-head">
+                    <span>{m.emoji}</span>
+                    <div>
+                      <strong>{m.name}</strong>
+                      <small>{m.type} · {m.ingredients.length} ingredientes · {m.prepMinutes} min · disponibles {status.available}</small>
+                      {status.target > 0 && <small>objetivo {fmt(status.target)}/sem · gap {fmt(status.gap)} · limitante {status.bottleneck?.name ?? "—"}</small>}
+                    </div>
+                    <div className="manager-row-actions">
+                      <label style={{display:"flex",alignItems:"center",gap:6,fontSize:12}}>
+                        objetivo/sem
+                        <input
+                          style={{width:64}}
+                          type="number"
+                          min="0"
+                          step="1"
+                          defaultValue={m.targetServingsPerWeek ?? 0}
+                          onBlur={e => updateMealTarget(m.id, Number(e.target.value))}
+                        />
+                      </label>
+                      <button className="soft-action" onClick={() => archiveMeal(m.id)}>Archivar</button>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </article>
       </div>

@@ -39,6 +39,7 @@ export type Meal = {
   type: MealType;
   prepMinutes: number;
   ingredients: Ingredient[];
+  targetServingsPerWeek?: number;
 };
 
 export type InventoryEvent = {

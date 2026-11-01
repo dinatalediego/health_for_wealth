@@ -1,5 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
-import { coverageDays, mealCounts, restockSuggestions } from "@/lib/engine";
+import { coverageDays, mealCounts, mealPlanSummary, restockSuggestions } from "@/lib/engine";
 import type { Item, KitchenState, Meal } from "@/lib/types";
 
 export function serviceClient() {
@@ -31,9 +31,10 @@ export async function assertMembership(userId: string, householdId: string) {
 export type KitchenEvaluation = {
   coverage: number;
   counts: { breakfast: number; lunch: number; dinner: number; snack: number };
+  plan: ReturnType<typeof mealPlanSummary>;
   lowStockCount: number;
   stockoutCount: number;
-  lowItems: Array<Item & { suggested: number }>;
+  lowItems: ReturnType<typeof restockSuggestions>;
   state: KitchenState;
 };
 
@@ -73,6 +74,7 @@ export async function evaluateKitchen(householdId: string): Promise<KitchenEvalu
     emoji: m.emoji,
     type: m.meal_type,
     prepMinutes: m.prep_minutes,
+    targetServingsPerWeek: Number(m.target_servings_per_week ?? 0),
     ingredients: (ingredients.data ?? [])
       .filter((i: any) => i.meal_id === m.id)
       .map((i: any) => ({
@@ -94,12 +96,14 @@ export async function evaluateKitchen(householdId: string): Promise<KitchenEvalu
 
   const counts = mealCounts(state);
   const coverage = coverageDays(state);
+  const plan = mealPlanSummary(state);
   const lowItems = restockSuggestions(state);
 
   return {
     coverage,
     counts,
-    lowStockCount: items.filter(i => i.quantity <= i.min).length,
+    plan,
+    lowStockCount: lowItems.length,
     stockoutCount: items.filter(i => i.quantity <= 0).length,
     lowItems,
     state
@@ -139,7 +143,9 @@ export async function recordStateSnapshot(
       dinner_count: evaluation.counts.dinner,
       snack_count: evaluation.counts.snack,
       low_stock_count: evaluation.lowStockCount,
-      stockout_count: evaluation.stockoutCount
+      stockout_count: evaluation.stockoutCount,
+      meal_plan_readiness_pct: evaluation.plan.readinessPct,
+      meal_plan_coverage_days: evaluation.plan.coveredDays
     })
     .select("*")
     .single();
@@ -229,6 +235,10 @@ export function consequenceDecision(
   threshold: number
 ) {
   const previousCoverage = previous ? Number(previous.coverage_days) : null;
+  const previousPlanDays = previous?.meal_plan_coverage_days === null || previous?.meal_plan_coverage_days === undefined
+    ? null
+    : Number(previous.meal_plan_coverage_days);
+  const currentPlanDays = current.plan.activeMeals > 0 ? current.plan.coveredDays : null;
   const zeroMealTypes = Object.entries(current.counts)
     .filter(([, value]) => value <= 0)
     .map(([key]) => key);
@@ -242,7 +252,40 @@ export function consequenceDecision(
     };
   }
 
-  if (previousCoverage !== null && previousCoverage <= threshold && current.coverage > threshold) {
+  if (
+    currentPlanDays !== null &&
+    previousPlanDays !== null &&
+    previousPlanDays <= threshold &&
+    currentPlanDays > threshold &&
+    current.coverage > threshold
+  ) {
+    return {
+      type: "coverage_recovered" as const,
+      shouldSend: true,
+      reason: "El plan semanal recuperó cobertura por encima del umbral",
+      previousCoverage
+    };
+  }
+
+  if (
+    currentPlanDays !== null &&
+    currentPlanDays <= threshold &&
+    (previousPlanDays === null || previousPlanDays > threshold)
+  ) {
+    return {
+      type: "coverage_alert" as const,
+      shouldSend: true,
+      reason: "El plan semanal cayó a " + currentPlanDays + " días de cobertura",
+      previousCoverage
+    };
+  }
+
+  if (
+    previousCoverage !== null &&
+    previousCoverage <= threshold &&
+    current.coverage > threshold &&
+    (currentPlanDays === null || currentPlanDays > threshold)
+  ) {
     return {
       type: "coverage_recovered" as const,
       shouldSend: true,
@@ -295,7 +338,7 @@ export function kitchenEmailHtml(args: {
   const { evaluation } = args;
   const url = appUrl();
   const restockRows = evaluation.lowItems.slice(0, 8)
-    .map(i => "<li><strong>" + i.emoji + " " + i.name + "</strong>: comprar " + i.suggested + " " + i.unit + "</li>")
+    .map(i => "<li><strong>" + i.emoji + " " + i.name + "</strong>: comprar " + Math.round(i.suggested * 10) / 10 + " " + i.unit + (i.mealDriven ? " · protege el plan semanal" : "") + "</li>")
     .join("");
 
   const headline = args.recovered
@@ -306,15 +349,20 @@ export function kitchenEmailHtml(args: {
     ? ""
     : "<p style=\"color:#6f7c74\">Scan anterior: " + args.previousCoverage + " días → ahora: <strong>" + evaluation.coverage + "</strong></p>";
 
+  const planLine = evaluation.plan.activeMeals > 0
+    ? "<p>📅 Plan semanal: <strong>" + evaluation.plan.readinessPct + "% listo</strong> · " + evaluation.plan.coveredDays + " días · limitante " + (evaluation.plan.limitingIngredient?.name ?? "—") + "</p>"
+    : "";
+
   return `
   <div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:auto;color:#173c2b;background:#f7f9f5;padding:28px;border-radius:24px">
     <p style="font-size:12px;letter-spacing:.14em;font-weight:800;color:#6f7c74">HEALTH FOR WEALTH · KITCHEN READINESS</p>
     <h1 style="margin:8px 0 4px">${headline}</h1>
     <p style="font-size:30px;margin:12px 0"><strong>${evaluation.coverage} días</strong> cubiertos</p>
     ${delta}
+    ${planLine}
     <p><strong>Por qué recibes esto:</strong> ${args.reason}</p>
     <p>🥣 ${evaluation.counts.breakfast} desayunos · 🍲 ${evaluation.counts.lunch} almuerzos · 🌙 ${evaluation.counts.dinner} cenas · 🍎 ${evaluation.counts.snack} snacks</p>
-    ${evaluation.lowItems.length ? "<h3>Compra mínima sugerida</h3><ul>" + restockRows + "</ul>" : "<p>✓ No hay items críticos por reponer.</p>"}
+    ${evaluation.lowItems.length ? "<h3>Compra sugerida</h3><ul>" + restockRows + "</ul>" : "<p>✓ No hay items críticos por reponer.</p>"}
     <div style="margin-top:24px">
       <a href="${url}/#shopping" style="display:inline-block;background:#173c2b;color:white;text-decoration:none;padding:12px 18px;border-radius:12px;font-weight:700;margin-right:8px">Abrir Smart Restock</a>
       <a href="${url}/#scan" style="display:inline-block;background:#e8f2a7;color:#173c2b;text-decoration:none;padding:12px 18px;border-radius:12px;font-weight:700">Nuevo scan</a>

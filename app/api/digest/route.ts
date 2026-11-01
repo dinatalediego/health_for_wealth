@@ -41,7 +41,8 @@ export async function GET(req: NextRequest) {
       await recordStateSnapshot(pref.household_id, evaluation, "digest", null);
 
       const threshold = Number(pref.coverage_threshold ?? 3);
-      const needsAttention = evaluation.coverage <= threshold || evaluation.lowStockCount > 0;
+      const planNeedsAttention = evaluation.plan.activeMeals > 0 && evaluation.plan.coveredDays <= threshold;
+      const needsAttention = evaluation.coverage <= threshold || planNeedsAttention || evaluation.lowStockCount > 0;
       if (!needsAttention) {
         skipped++;
         continue;
@@ -61,12 +62,18 @@ export async function GET(req: NextRequest) {
       }
 
       const reason = evaluation.coverage <= threshold
-        ? "Cobertura en o por debajo del umbral de " + threshold + " días"
-        : evaluation.lowStockCount + " productos están en o por debajo de su mínimo";
+        ? "Cobertura general en o por debajo del umbral de " + threshold + " días"
+        : planNeedsAttention
+          ? "Tu plan semanal bajó a " + evaluation.plan.coveredDays + " días de cobertura"
+          : evaluation.lowStockCount + " productos llegaron a su punto de compra efectivo";
+
+      const headlineDays = evaluation.plan.activeMeals > 0
+        ? Math.min(evaluation.coverage, evaluation.plan.coveredDays)
+        : evaluation.coverage;
 
       const email = await sendResendEmail({
         to: pref.email,
-        subject: "Kitchen Brief · " + evaluation.coverage + " días cubiertos",
+        subject: "Kitchen Brief · " + headlineDays + " días de cobertura crítica",
         html: kitchenEmailHtml({
           evaluation,
           previousCoverage: null,
@@ -84,7 +91,11 @@ export async function GET(req: NextRequest) {
         coverage: evaluation.coverage,
         reason,
         providerMessageId: email?.id ?? null,
-        metadata: { threshold }
+        metadata: {
+          threshold,
+          mealPlanReadinessPct: evaluation.plan.readinessPct,
+          mealPlanCoverageDays: evaluation.plan.coveredDays
+        }
       });
 
       sent++;
