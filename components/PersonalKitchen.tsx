@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { mealPlanIngredientStatuses, mealPlanSummary, mealTargetStatus } from "@/lib/engine";
 import { getSupabase } from "@/lib/supabase";
+import { MealPhotoImport } from "@/components/MealPhotoImport";
 import type { Item, KitchenState, LocationType, MealType } from "@/lib/types";
 
 const fmt = (value: number) => Number.isInteger(value) ? String(value) : value.toFixed(1);
@@ -170,7 +171,7 @@ export function PersonalKitchen({
                   <div>
                     <strong>{i.name}</strong>
                     <small>
-                      stock {fmt(i.quantity)} {i.unit} · demanda semanal {fmt(i.weeklyDemand)} {i.unit} · {Math.min(99, Math.max(0, Math.round(i.coverageDays * 10) / 10))} días equivalentes
+                      stock {fmt(i.quantity)} {i.unit} · demanda semanal {fmt(i.weeklyDemand)} {i.unit} · {fmt(Math.max(0, i.coverageDays))} días equivalentes
                     </small>
                     <small>Alimenta: {i.plannedMeals.join(" · ")}</small>
                   </div>
@@ -185,6 +186,8 @@ export function PersonalKitchen({
             {mealPlan.activeMeals === 0 && <div className="empty">Pon un objetivo semanal mayor a 0 en al menos una meal para activar Meal Coverage.</div>}
           </div>
         </article>
+
+        <MealPhotoImport state={state} onRefresh={onRefresh} flash={flash} />
 
         <article className="manage-panel">
           <div className="eyebrow">FOOD CATALOG</div>
